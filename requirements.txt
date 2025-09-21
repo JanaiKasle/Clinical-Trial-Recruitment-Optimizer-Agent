@@ -1,0 +1,9 @@
+streamlit
+boto3
+pandas
+numpy
+python-dotenv
+typing-extensions
+plotly
+matplotlib
+seaborn

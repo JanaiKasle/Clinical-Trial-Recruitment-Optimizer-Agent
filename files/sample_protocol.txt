@@ -1,0 +1,31 @@
+CLINICAL TRIAL PROTOCOL: Diabetes Management Study
+
+TITLE: A Randomized, Double-Blind, Placebo-Controlled Study to Evaluate the Efficacy and Safety of XYZ-Drug in Adult Patients with Type 2 Diabetes Mellitus
+
+STUDY OBJECTIVES:
+Primary: To evaluate the efficacy of XYZ-Drug in reducing HbA1c levels in patients with Type 2 diabetes mellitus.
+
+ELIGIBILITY CRITERIA:
+
+INCLUSION CRITERIA:
+1. Male or female patients aged 18 to 65 years
+2. Diagnosed with Type 2 diabetes mellitus for at least 6 months
+3. HbA1c levels between 7.0% and 10.5%
+4. Body Mass Index (BMI) between 25 and 40 kg/m²
+5. Stable on metformin therapy for at least 3 months prior to screening
+6. Willing and able to provide informed consent
+
+EXCLUSION CRITERIA:
+1. Type 1 diabetes mellitus or secondary forms of diabetes
+2. History of diabetic ketoacidosis or hyperosmolar hyperglycemic state
+3. Severe cardiovascular disease including myocardial infarction within 6 months
+4. Severe renal impairment (eGFR < 30 mL/min/1.73m²)
+5. Active liver disease or ALT/AST > 3x upper limit of normal
+6. Pregnancy or breastfeeding
+7. Current use of insulin or other antidiabetic medications except metformin
+8. History of pancreatitis
+9. Active malignancy within the past 5 years
+10. Current smokers or those who quit smoking less than 6 months ago
+
+STUDY DESIGN:
+This is a 24-week, randomized, double-blind, placebo-controlled study. Approximately 200 patients will be randomized in a 1:1 ratio to receive either XYZ-Drug or placebo.
