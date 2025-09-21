@@ -191,13 +191,8 @@ class ClinicalTrialAgent:
         return criteria
     
     def score_patients(self, criteria: Dict[str, Any], patients_df: pd.DataFrame) -> List[PatientScore]:
-        """Score patients based on eligibility criteria"""
+        """Score patients based on eligibility criteria with improved matching logic"""
         scored_patients = []
-        
-        # Get all criteria for scoring
-        inclusion_criteria = criteria.get('inclusion_criteria', [])
-        exclusion_criteria = criteria.get('exclusion_criteria', [])
-        medical_conditions_req = criteria.get('medical_conditions', [])
         
         for _, patient in patients_df.iterrows():
             score = 0
@@ -205,72 +200,93 @@ class ClinicalTrialAgent:
             matching_criteria = []
             missing_criteria = []
             
-            # Age scoring
+            # 1. Age scoring (18-65 years)
             patient_age = patient.get('age', 0)
-            min_age = criteria.get('age_requirements', {}).get('min_age', 0)
-            max_age = criteria.get('age_requirements', {}).get('max_age', 100)
+            min_age = criteria.get('age_requirements', {}).get('min_age', 18)
+            max_age = criteria.get('age_requirements', {}).get('max_age', 65)
             
             total_criteria += 1
             if min_age <= patient_age <= max_age:
                 score += 1
-                matching_criteria.append(f"Age requirement met ({patient_age} years)")
+                matching_criteria.append(f"Age requirement met ({patient_age} years, range: {min_age}-{max_age})")
             else:
-                missing_criteria.append(f"Age requirement not met ({patient_age} not in {min_age}-{max_age})")
+                missing_criteria.append(f"Age requirement not met ({patient_age} years, required: {min_age}-{max_age})")
             
-            # Gender scoring
-            gender_req = criteria.get('gender_requirements', 'all')
-            if gender_req != 'all':
-                total_criteria += 1
-                patient_gender = patient.get('gender', '').lower()
-                if patient_gender == gender_req.lower():
-                    score += 1
-                    matching_criteria.append(f"Gender requirement met ({patient_gender})")
+            # 2. Type 2 Diabetes requirement (must be specific)
+            patient_conditions = str(patient.get('medical_conditions', [])).lower()
+            total_criteria += 1
+
+            # Check for specific Type 2 diabetes or general diabetes (but not Type 1)
+            has_type2_diabetes = (
+                'type 2 diabetes' in patient_conditions or 
+                ('diabetes' in patient_conditions and 'type 1 diabetes' not in patient_conditions)
+            )
+
+            # Exclude patients with only PCOS or other conditions where metformin is used
+            has_only_pcos = 'pcos' in patient_conditions and 'diabetes' not in patient_conditions
+
+            if has_type2_diabetes and not has_only_pcos:
+                score += 1
+                matching_criteria.append("Has Type 2 diabetes mellitus")
+            else:
+                if has_only_pcos:
+                    missing_criteria.append("Has PCOS but no diabetes diagnosis")
                 else:
-                    missing_criteria.append(f"Gender requirement not met ({patient_gender} vs {gender_req})")
+                    missing_criteria.append("No Type 2 diabetes mellitus diagnosis")
+                        
+            # 3. BMI requirement (25-40 kg/m²)
+            patient_bmi = patient.get('bmi', 0)
+            total_criteria += 1
+            if 25 <= patient_bmi <= 40:
+                score += 1
+                matching_criteria.append(f"BMI within range ({patient_bmi} kg/m², range: 25-40)")
+            else:
+                missing_criteria.append(f"BMI outside range ({patient_bmi} kg/m², required: 25-40)")
             
-            # Medical conditions scoring
-            patient_conditions = patient.get('medical_conditions', [])
-            if isinstance(patient_conditions, str):
-                patient_conditions = [patient_conditions]
+            # 4. Metformin therapy requirement
+            patient_medications = str(patient.get('medications', [])).lower()
+            total_criteria += 1
+            if 'metformin' in patient_medications:
+                score += 1
+                matching_criteria.append("On metformin therapy")
+            else:
+                missing_criteria.append("Not on metformin therapy")
             
-            # Convert to string and split if it's a list stored as string
-            patient_conditions_str = str(patient_conditions).lower()
+            # 5. Exclusion: Current smokers
+            smoking_status = str(patient.get('smoking_status', '')).lower()
+            total_criteria += 1
+            if smoking_status != 'smoker':
+                score += 1
+                matching_criteria.append(f"Not a current smoker ({smoking_status})")
+            else:
+                missing_criteria.append("Current smoker (excluded)")
             
-            for condition in medical_conditions_req:
-                total_criteria += 1
-                if condition.lower() in patient_conditions_str:
-                    score += 1
-                    matching_criteria.append(f"Required medical condition present: {condition}")
-                else:
-                    missing_criteria.append(f"Required medical condition missing: {condition}")
+            # 6. Exclusion: Insulin use (except metformin only)
+            total_criteria += 1
+            if 'insulin' not in patient_medications:
+                score += 1
+                matching_criteria.append("Not using insulin")
+            else:
+                missing_criteria.append("Currently using insulin (exclusion criterion)")
             
-            # Inclusion criteria scoring (simplified keyword matching)
-            for criterion in inclusion_criteria[:3]:  # Check first 3 inclusion criteria
-                total_criteria += 1
-                criterion_lower = criterion.lower()
-                
-                # Simple keyword matching against patient data
-                patient_data_str = str(patient.to_dict()).lower()
-                if any(keyword in patient_data_str for keyword in criterion_lower.split()[:3]):
-                    score += 0.5  # Partial score for keyword matches
-                    matching_criteria.append(f"Inclusion criterion partially matched: {criterion[:50]}...")
-                else:
-                    missing_criteria.append(f"Inclusion criterion not matched: {criterion[:50]}...")
+            # 7. Exclusion: Severe cardiovascular disease (heart disease check)
+            total_criteria += 1
+            if 'heart disease' not in patient_conditions:
+                score += 1
+                matching_criteria.append("No severe cardiovascular disease")
+            else:
+                missing_criteria.append("Has cardiovascular disease (exclusion)")
             
-            # Exclusion criteria scoring (presence of exclusion = negative score)
-            for criterion in exclusion_criteria[:2]:  # Check first 2 exclusion criteria
-                total_criteria += 1
-                criterion_lower = criterion.lower()
-                patient_data_str = str(patient.to_dict()).lower()
-                
-                if not any(keyword in patient_data_str for keyword in ['pregnancy', 'cancer', 'severe']):
-                    score += 1
-                    matching_criteria.append(f"Exclusion criterion not present: {criterion[:50]}...")
-                else:
-                    missing_criteria.append(f"Exclusion criterion present: {criterion[:50]}...")
+            # 8. Exclusion: Severe renal impairment (kidney disease check)
+            total_criteria += 1
+            if 'kidney disease' not in patient_conditions:
+                score += 1
+                matching_criteria.append("No severe renal impairment")
+            else:
+                missing_criteria.append("Has kidney disease (exclusion)")
             
             # Calculate final score as percentage
-            final_score = (score / max(total_criteria, 1)) * 100
+            final_score = (score / total_criteria) * 100
             
             scored_patient = PatientScore(
                 patient_id=str(patient.get('patient_id', '')),
@@ -285,8 +301,7 @@ class ClinicalTrialAgent:
         
         # Sort by score descending
         scored_patients.sort(key=lambda x: x.score, reverse=True)
-        return scored_patients
-    
+        return scored_patients    
     def generate_report(self, criteria: Dict[str, Any], scored_patients: List[PatientScore]) -> str:
         """Generate a comprehensive report"""
         
@@ -871,7 +886,7 @@ def main():
     st.markdown(
         "**Clinical Trial Recruitment Optimizer** | "
         "Built with AWS Bedrock, Python & Streamlit | "
-        "© 2024 Saama Technologies"
+        "© 2025 Saama Technologies"
     )
 
 if __name__ == "__main__":

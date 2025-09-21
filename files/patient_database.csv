@@ -1,28 +1,28 @@
 patient_id,name,age,gender,medical_conditions,medications,bmi,smoking_status
-P001,John Smith,45,male,"['diabetes', 'hypertension']","['metformin', 'lisinopril']",28.5,non-smoker
+P001,John Smith,45,male,"['type 2 diabetes', 'hypertension']","['metformin', 'lisinopril']",28.5,non-smoker
 P002,Sarah Johnson,32,female,['asthma'],['albuterol'],24.2,non-smoker
-P003,Michael Brown,67,male,"['diabetes', 'heart disease']","['insulin', 'atenolol']",31,former smoker
+P003,Michael Brown,67,male,"['type 2 diabetes', 'heart disease']","['insulin', 'atenolol']",31,former smoker
 P004,Emily Davis,28,female,['depression'],['sertraline'],22.1,non-smoker
-P005,Robert Wilson,55,male,"['diabetes', 'obesity']","['metformin', 'orlistat']",35.2,smoker
-P006,Lisa Anderson,41,female,"['hypertension', 'diabetes']","['amlodipine', 'metformin']",27.8,non-smoker
+P005,Robert Wilson,55,male,"['type 1 diabetes', 'obesity']","['metformin', 'orlistat']",35.2,smoker
+P006,Lisa Anderson,41,female,"['hypertension', 'type 2 diabetes']","['amlodipine', 'metformin']",27.8,non-smoker
 P007,David Martinez,35,male,['healthy'],[],23.5,non-smoker
-P008,Jennifer Taylor,50,female,"['diabetes', 'depression']","['insulin', 'fluoxetine']",29.3,non-smoker
+P008,Jennifer Taylor,50,female,"['type 2 diabetes', 'depression']","['insulin', 'fluoxetine']",29.3,non-smoker
 P009,Amanda Clark,60,female,"['hypertension', 'osteoporosis']","['lisinopril', 'alendronate']",26.7,non-smoker
 P010,James Lewis,71,male,['type 2 diabetes'],['metformin'],30.1,smoker
 P011,Olivia Hall,29,female,"['asthma', 'eczema']","['albuterol',  'cetirizine']",22.5,non-smoker
 P012,William Allen,43,male,"['depression',  'anxiety']","['sertraline',  'clonazepam']",27.6,non-smoker
-P013,Chloe Wright,58,female,"['diabetes',  'heart disease']","['insulin',  'aspirin']",34.2,former smoker
+P013,Chloe Wright,58,female,"['type 1 diabetes',  'heart disease']","['insulin',  'aspirin']",22,former smoker
 P014,Ethan Scott,36,male,['obesity'],['orlistat'],33.5,smoker
 P015,Grace Adams,48,female,['hypertension'],['amlodipine'],26.1,non-smoker
 P016,Benjamin Baker,62,male,"['type 2 diabetes',  'kidney disease']","['metformin',  'enalapril']",31.3,non-smoker
 P017,Lily Nelson,40,female,['depression'],['fluoxetine'],24,non-smoker
 P018,Daniel Perez,72,male,['type 2 diabetes'],['metformin'],28.9,former smoker
 P019,Mia Hill,34,female,['PCOS'],['metformin'],25.4,non-smoker
-P020,Noah Rivera,47,male,"['diabetes',  'hypertension']","['insulin',  'lisinopril']",32.8,smoker
+P020,Noah Rivera,47,male,"['type 2 diabetes',  'hypertension']","['insulin',  'lisinopril']",32.8,smoker
 P021,Emily Campbell,30,female,['healthy'],[],22.2,non-smoker
 P022,Logan Mitchell,52,male,"['type 2 diabetes',  'high cholesterol']","['metformin',  'atorvastatin']",29.4,non-smoker
 P023,Sofia Roberts,39,female,['migraine'],['sumatriptan'],23.3,non-smoker
-P024,Jacob Carter,44,male,['diabetes'],['metformin'],27.9,non-smoker
+P024,Jacob Carter,44,male,['type 1 diabetes'],['metformin'],27.9,non-smoker
 P025,Abigail Phillips,51,female,['osteoporosis'],['alendronate'],24.5,former smoker
 P026,Matthew Evans,37,male,"['obesity',  'sleep apnea']",['cpap therapy'],34.8,smoker
 P027,Ella Turner,26,female,['anxiety'],['lorazepam'],23,non-smoker
@@ -31,10 +31,10 @@ P029,Zoe Collins,46,female,"['depression',  'type 2 diabetes']","['sertraline', 
 P030,Alexander Stewart,59,male,['heart disease'],['atenolol'],26.6,former smoker
 P031,Natalie Morris,33,female,['type 2 diabetes'],['metformin'],24.7,non-smoker
 P032,Henry Rogers,49,male,['hypertension'],['lisinopril'],27.3,smoker
-P033,Victoria Reed,42,female,"['diabetes',  'thyroid disorder']","['metformin',  'levothyroxine']",29,non-smoker
+P033,Victoria Reed,42,female,"['type 2 diabetes',  'thyroid disorder']","['metformin',  'levothyroxine']",29,non-smoker
 P034,Samuel Cook,35,male,['healthy'],[],23.8,non-smoker
 P035,Aria Morgan,31,female,['asthma'],['albuterol'],25.1,non-smoker
 P036,Christopher Bell,57,male,"['type 2 diabetes',  'obesity']",['metformin'],33.1,smoker
 P037,Scarlett Murphy,29,female,['depression'],['fluoxetine'],21.9,non-smoker
 P038,Andrew Bailey,61,male,['kidney disease'],['enalapril'],28,former smoker
-P039,Hannah Rivera,68,female,['type 2 diabetes'],['metformin'],27.5,non-smoker
+P039,Hannah Rivera,68,female,['type 1 diabetes'],['metformin'],24,smoker
