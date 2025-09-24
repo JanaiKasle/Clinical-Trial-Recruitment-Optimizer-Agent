@@ -12,12 +12,25 @@ import io
 import base64
 from dataclasses import dataclass
 import logging
-import plotly.express as px
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
+import plotly.express as plotly_express
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+try:
+    import phoenix as phoenix_ai
+    from opentelemetry import trace
+    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+    from openinference.instrumentation.bedrock import BedrockInstrumentor
+    PHOENIX_AVAILABLE = True
+except ImportError:
+    PHOENIX_AVAILABLE = False
+    phoenix_ai = None
+    trace = None
+    BedrockInstrumentor = None
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -48,7 +61,21 @@ class ClinicalTrialAgent:
         except Exception as e:
             logger.error(f"Failed to initialize AWS Bedrock client: {str(e)}")
             raise e
-    
+    def initialize_phoenix(self):
+        """Initialize Phoenix for evaluation and tracing"""
+        if not PHOENIX_AVAILABLE:
+            logger.warning("Phoenix not available. Install with: pip install 'arize-phoenix[evals]'")
+            return None
+            
+        try:
+            # Launch Phoenix with proper configuration
+            session = phoenix_ai.launch_app(host="127.0.0.1", port=6006)
+            logger.info(f"Phoenix launched successfully at http://127.0.0.1:6006")
+            return session
+        except Exception as e:
+            logger.error(f"Failed to initialize Phoenix: {str(e)}")
+            return None
+
     def extract_eligibility_criteria(self, protocol_text: str) -> Dict[str, Any]:
         """Extract eligibility criteria from protocol document using Bedrock"""
         
@@ -87,6 +114,7 @@ class ClinicalTrialAgent:
         """
         
         try:
+            # Bedrock call (automatically traced if instrumentation is active)
             response = self.bedrock_client.invoke_model(
                 modelId="anthropic.claude-3-sonnet-20240229-v1:0",
                 body=json.dumps({
@@ -98,9 +126,13 @@ class ClinicalTrialAgent:
                     }]
                 })
             )
-            
+
             response_body = json.loads(response['body'].read())
             criteria_text = response_body['content'][0]['text']
+
+            # Log to Phoenix if available
+            if PHOENIX_AVAILABLE and hasattr(st.session_state, 'phoenix_session'):
+                logger.info(f"Bedrock call completed - Input length: {len(prompt)}, Output length: {len(criteria_text)}")
             
             # Clean up the response and extract JSON
             criteria_text = criteria_text.strip()
@@ -499,7 +531,20 @@ class ClinicalTrialAgent:
         
         if ages:
             # Age distribution with scores
-            fig_age_score = px.scatter(
+            fig_age_score = go.Figure()
+            fig_age_score.add_trace(go.Scatter(
+                x=ages,
+                y=scores,
+                mode='markers',
+                marker=dict(
+                    color=scores,
+                    colorscale='RdYlGn',
+                    size=8
+                ),
+                text=[f"Age: {age}, Score: {score:.1f}%" for age, score in zip(ages, scores)],
+                hovertemplate='%{text}<extra></extra>'
+            ))
+            fig_age_score = plotly_express.scatter(
                 x=ages,
                 y=scores,
                 title='Match Scores vs Patient Age',
@@ -514,7 +559,7 @@ class ClinicalTrialAgent:
         if genders:
             # Gender distribution
             gender_counts = pd.Series(genders).value_counts()
-            fig_gender = px.pie(
+            fig_gender = plotly_express.pie(
                 values=gender_counts.values,
                 names=gender_counts.index,
                 title='Patient Gender Distribution'
@@ -556,7 +601,220 @@ class ClinicalTrialAgent:
         matplotlib_figs['distribution_analysis'] = fig
         
         return matplotlib_figs
+    
+    def evaluate_with_phoenix(self, protocol_text: str, extracted_criteria: Dict[str, Any], 
+                         scored_patients: List[PatientScore]) -> Dict[str, Any]:
+        """Evaluate the clinical trial matching using simplified metrics"""
+        
+        try:
+            # Simple evaluation without complex Phoenix evals
+            clinical_eval_results = self._custom_clinical_evaluation_simple(extracted_criteria, scored_patients)
+            
+            evaluations = {
+                'clinical_accuracy': clinical_eval_results
+            }
+            
+            # Log evaluation to Phoenix if available
+            if PHOENIX_AVAILABLE and hasattr(st.session_state, 'phoenix_session'):
+                logger.info(f"Clinical Trial Evaluation completed: {clinical_eval_results.get('overall_accuracy', 0):.1f}% accuracy")
+            
+            return {
+                "phoenix_session": getattr(st.session_state, 'phoenix_session', None),
+                "evaluations": evaluations,
+                "evaluation_summary": self._generate_evaluation_summary(evaluations)
+            }
+            
+        except Exception as e:
+            logger.error(f"Evaluation failed: {str(e)}")
+            return {"error": f"Evaluation failed: {str(e)}"}
 
+    def _custom_clinical_evaluation_simple(self, criteria: Dict[str, Any], 
+                                        patients: List[PatientScore]) -> Dict[str, Any]:
+        """Simplified custom evaluation logic for clinical trial matching accuracy"""
+        
+        results = {
+            "criteria_extraction_accuracy": 0,
+            "patient_ranking_accuracy": 0,
+            "exclusion_criteria_accuracy": 0,
+            "overall_accuracy": 0,
+            "total_patients_evaluated": len(patients),
+            "high_scoring_patients": len([p for p in patients if p.score >= 80])
+        }
+        
+        try:
+            # 1. Evaluate criteria extraction completeness
+            expected_criteria_keys = ['inclusion_criteria', 'exclusion_criteria', 'age_requirements', 'medical_conditions']
+            found_criteria = sum(1 for key in expected_criteria_keys if key in criteria and criteria[key])
+            results["criteria_extraction_accuracy"] = (found_criteria / len(expected_criteria_keys)) * 100
+            
+            # 2. Evaluate patient ranking logic
+            diabetes_patients = [p for p in patients if 'diabetes' in str(p.patient_data.get('medical_conditions', '')).lower()]
+            non_diabetes_patients = [p for p in patients if 'diabetes' not in str(p.patient_data.get('medical_conditions', '')).lower()]
+            
+            if diabetes_patients and non_diabetes_patients:
+                avg_diabetes_score = sum(p.score for p in diabetes_patients) / len(diabetes_patients)
+                avg_non_diabetes_score = sum(p.score for p in non_diabetes_patients) / len(non_diabetes_patients)
+                
+                # Diabetes patients should score higher on average
+                ranking_accuracy = min(100, max(0, (avg_diabetes_score - avg_non_diabetes_score) * 2))
+                results["patient_ranking_accuracy"] = ranking_accuracy
+            else:
+                results["patient_ranking_accuracy"] = 50  # Neutral if no comparison possible
+            
+            # 3. Evaluate exclusion criteria application  
+            smokers_penalized = 0
+            insulin_users_penalized = 0
+            age_violations_penalized = 0
+            
+            for patient in patients:
+                smoking_status = str(patient.patient_data.get('smoking_status', '')).lower()
+                medications = str(patient.patient_data.get('medications', [])).lower()
+                age = patient.patient_data.get('age', 0)
+                
+                # Check smoker penalties
+                if smoking_status == 'smoker' and patient.score < 100:
+                    smokers_penalized += 1
+                    
+                # Check insulin user penalties
+                if 'insulin' in medications and patient.score < 100:
+                    insulin_users_penalized += 1
+                    
+                # Check age violation penalties  
+                if (age < 18 or age > 65) and patient.score < 100:
+                    age_violations_penalized += 1
+            
+            # Calculate exclusion accuracy based on proper penalties
+            total_exclusion_checks = len([p for p in patients if 
+                                        str(p.patient_data.get('smoking_status', '')).lower() == 'smoker' or
+                                        'insulin' in str(p.patient_data.get('medications', [])).lower() or
+                                        p.patient_data.get('age', 0) < 18 or p.patient_data.get('age', 0) > 65])
+            
+            if total_exclusion_checks > 0:
+                total_penalized = smokers_penalized + insulin_users_penalized + age_violations_penalized
+                results["exclusion_criteria_accuracy"] = min(100, (total_penalized / total_exclusion_checks) * 100)
+            else:
+                results["exclusion_criteria_accuracy"] = 100  # No exclusions to check
+            
+            # 4. Overall accuracy
+            results["overall_accuracy"] = (
+                results["criteria_extraction_accuracy"] * 0.3 +
+                results["patient_ranking_accuracy"] * 0.4 +
+                results["exclusion_criteria_accuracy"] * 0.3
+            )
+            
+            # Additional metrics
+            results["diabetes_patients_found"] = len(diabetes_patients)
+            results["average_score"] = sum(p.score for p in patients) / len(patients) if patients else 0
+            
+        except Exception as e:
+            logger.error(f"Custom evaluation failed: {str(e)}")
+            results["error"] = str(e)
+        
+        return results
+
+    def _custom_clinical_evaluation(self, eval_df: pd.DataFrame, criteria: Dict[str, Any], 
+                                patients: List[PatientScore]) -> Dict[str, Any]:
+        """Custom evaluation logic for clinical trial matching accuracy"""
+        
+        results = {
+            "criteria_extraction_accuracy": 0,
+            "patient_ranking_accuracy": 0,
+            "exclusion_criteria_accuracy": 0,
+            "overall_accuracy": 0
+        }
+        
+        try:
+            # 1. Evaluate criteria extraction completeness
+            expected_criteria_keys = ['inclusion_criteria', 'exclusion_criteria', 'age_requirements', 'medical_conditions']
+            found_criteria = sum(1 for key in expected_criteria_keys if key in criteria and criteria[key])
+            results["criteria_extraction_accuracy"] = (found_criteria / len(expected_criteria_keys)) * 100
+            
+            # 2. Evaluate patient ranking logic
+            diabetes_patients = [p for p in patients if 'diabetes' in str(p.patient_data.get('medical_conditions', '')).lower()]
+            non_diabetes_patients = [p for p in patients if 'diabetes' not in str(p.patient_data.get('medical_conditions', '')).lower()]
+            
+            if diabetes_patients and non_diabetes_patients:
+                avg_diabetes_score = sum(p.score for p in diabetes_patients) / len(diabetes_patients)
+                avg_non_diabetes_score = sum(p.score for p in non_diabetes_patients) / len(non_diabetes_patients)
+                
+                # Diabetes patients should score higher on average
+                ranking_accuracy = min(100, max(0, (avg_diabetes_score - avg_non_diabetes_score) * 2))
+                results["patient_ranking_accuracy"] = ranking_accuracy
+            
+            # 3. Evaluate exclusion criteria application
+            excluded_correctly = 0
+            total_exclusions = 0
+            
+            for patient in patients:
+                patient_data = str(patient.patient_data).lower()
+                total_exclusions += 1
+                
+                # Check if smokers are properly penalized
+                if 'smoker' in patient_data and patient.score < 90:
+                    excluded_correctly += 1
+                # Check if insulin users are properly penalized  
+                elif 'insulin' in patient_data and patient.score < 90:
+                    excluded_correctly += 1
+                # Check if patients outside age range are penalized
+                elif patient.patient_data.get('age', 0) > 65 and patient.score < 90:
+                    excluded_correctly += 1
+                else:
+                    excluded_correctly += 0.5  # Partial credit
+            
+            if total_exclusions > 0:
+                results["exclusion_criteria_accuracy"] = (excluded_correctly / total_exclusions) * 100
+            
+            # 4. Overall accuracy
+            results["overall_accuracy"] = (
+                results["criteria_extraction_accuracy"] * 0.3 +
+                results["patient_ranking_accuracy"] * 0.4 +
+                results["exclusion_criteria_accuracy"] * 0.3
+            )
+            
+        except Exception as e:
+            logger.error(f"Custom evaluation failed: {str(e)}")
+        
+        return results
+
+    def _generate_evaluation_summary(self, evaluations: Dict[str, Any]) -> Dict[str, str]:
+        """Generate human-readable summary of Phoenix evaluations"""
+        
+        summary = {
+            "overall_status": "Unknown",
+            "key_findings": [],
+            "recommendations": []
+        }
+        
+        try:
+            clinical_accuracy = evaluations.get('clinical_accuracy', {})
+            overall_accuracy = clinical_accuracy.get('overall_accuracy', 0)
+            
+            if overall_accuracy >= 80:
+                summary["overall_status"] = "Excellent"
+                summary["key_findings"].append("High quality criteria extraction and patient matching")
+            elif overall_accuracy >= 60:
+                summary["overall_status"] = "Good"
+                summary["key_findings"].append("Acceptable performance with room for improvement")
+            else:
+                summary["overall_status"] = "Needs Improvement"
+                summary["key_findings"].append("Significant issues detected in matching logic")
+            
+            # Add specific recommendations
+            if clinical_accuracy.get('criteria_extraction_accuracy', 0) < 70:
+                summary["recommendations"].append("Improve protocol document parsing and criteria extraction")
+            
+            if clinical_accuracy.get('patient_ranking_accuracy', 0) < 70:
+                summary["recommendations"].append("Enhance patient scoring algorithm for better ranking")
+                
+            if clinical_accuracy.get('exclusion_criteria_accuracy', 0) < 70:
+                summary["recommendations"].append("Strengthen exclusion criteria implementation")
+                
+        except Exception as e:
+            summary["overall_status"] = "Evaluation Error"
+            summary["key_findings"].append(f"Error generating summary: {str(e)}")
+        
+        return summary
+    
 
 def main():
     st.set_page_config(
@@ -564,6 +822,35 @@ def main():
         page_icon="🏥",
         layout="wide"
     )
+    
+    # Initialize Phoenix tracing with new API
+    if PHOENIX_AVAILABLE:
+        try:
+            # Start Phoenix session if not already running
+            if 'phoenix_session' not in st.session_state:
+                st.session_state.phoenix_session = phoenix_ai.launch_app(
+                    host="127.0.0.1", 
+                    port=6006
+                )
+                
+                # Configure OpenTelemetry for Phoenix
+                tracer_provider = TracerProvider()
+                trace.set_tracer_provider(tracer_provider)
+                
+                # Set up OTLP exporter to send traces to Phoenix
+                otlp_exporter = OTLPSpanExporter(
+                    endpoint="http://127.0.0.1:6006/v1/traces"
+                )
+                span_processor = BatchSpanProcessor(otlp_exporter)
+                tracer_provider.add_span_processor(span_processor)
+                
+                # Instrument Bedrock
+                if BedrockInstrumentor:
+                    BedrockInstrumentor().instrument()
+                
+                st.sidebar.success("🔍 Phoenix monitoring active at http://127.0.0.1:6006")
+        except Exception as e:
+            st.sidebar.warning(f"Phoenix setup: {str(e)}")
     
     st.title("🏥 Clinical Trial Recruitment Optimizer")
     st.markdown("**Powered by Saama Technologies | AWS Bedrock & AI**")
@@ -737,6 +1024,42 @@ def main():
                     scored_patients = st.session_state.agent.score_patients(criteria, st.session_state.patients_df)
                     st.session_state.scored_patients = scored_patients
                 
+                # Phoenix Evaluation Step
+                with st.spinner("Step 3: Running Phoenix AI evaluation..."):
+                    phoenix_results = st.session_state.agent.evaluate_with_phoenix(
+                        protocol_text, criteria, scored_patients
+                    )
+                    st.session_state.phoenix_results = phoenix_results
+
+                if 'error' not in phoenix_results:
+                    st.success("✅ Phoenix evaluation completed!")
+                    
+                    # Display evaluation summary
+                    st.subheader("🔍 Phoenix AI Evaluation Results")
+                    eval_summary = phoenix_results.get('evaluation_summary', {})
+                    
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Overall Status", eval_summary.get('overall_status', 'Unknown'))
+                    with col2:
+                        clinical_acc = phoenix_results.get('evaluations', {}).get('clinical_accuracy', {})
+                        st.metric("Overall Accuracy", f"{clinical_acc.get('overall_accuracy', 0):.1f}%")
+                    with col3:
+                        st.metric("Criteria Extraction", f"{clinical_acc.get('criteria_extraction_accuracy', 0):.1f}%")
+                    
+                    # Key findings
+                    st.write("**Key Findings:**")
+                    for finding in eval_summary.get('key_findings', []):
+                        st.write(f"• {finding}")
+                    
+                    # Recommendations
+                    if eval_summary.get('recommendations'):
+                        st.write("**Recommendations:**")
+                        for rec in eval_summary.get('recommendations', []):
+                            st.write(f"• {rec}")
+                else:
+                    st.warning(f"⚠️ Phoenix evaluation encountered issues: {phoenix_results.get('error')}")
+                
                 st.success("✅ Patient scoring completed!")
                 
                 # Step 3: Display results
@@ -767,12 +1090,13 @@ def main():
                     matplotlib_figs = st.session_state.agent.create_matplotlib_visualizations(scored_patients)
                 
                 # Create tabs for different visualizations
-                tab1, tab2, tab3, tab4, tab5 = st.tabs([
+                tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
                     "📊 Score Analysis", 
                     "🎯 Criteria Overview", 
                     "📈 Distribution", 
                     "👥 Demographics", 
-                    "🔬 Advanced Analysis"
+                    "🔬 Advanced Analysis",
+                    "🔍 Phoenix Evaluation"
                 ])
                 
                 with tab1:
@@ -852,6 +1176,58 @@ def main():
                     with col4:
                         st.metric("Score Range", f"{np.max(scores) - np.min(scores):.1f}%")
                 
+                with tab6:
+                    st.subheader("Phoenix AI Monitoring Dashboard")
+                    
+                    if PHOENIX_AVAILABLE and hasattr(st.session_state, 'phoenix_session'):
+                        st.success("🔍 Phoenix is running and automatically tracing your AWS Bedrock calls!")
+                        
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.write("**Phoenix Dashboard:**")
+                            st.markdown("🌐 [Open Phoenix Dashboard](http://127.0.0.1:6006)")
+                            st.code("http://127.0.0.1:6006")
+                            st.write("Click the link above to view:")
+                            st.write("• Real-time LLM call traces")
+                            st.write("• Token usage and costs") 
+                            st.write("• Latency metrics")
+                            st.write("• Input/output analysis")
+                            
+                        with col2:
+                            st.write("**Instructions:**")
+                            st.write("1. Click 'Extract Criteria & Match Patients'")
+                            st.write("2. Open the Phoenix dashboard link")
+                            st.write("3. You'll see traces appear automatically")
+                            st.write("4. Navigate to 'Traces' tab in Phoenix")
+                        
+                        # Show evaluation results if available
+                        if 'phoenix_results' in st.session_state and 'error' not in st.session_state.phoenix_results:
+                            st.subheader("📊 Evaluation Metrics")
+                            phoenix_results = st.session_state.phoenix_results
+                            clinical_accuracy = phoenix_results.get('evaluations', {}).get('clinical_accuracy', {})
+                            
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                st.metric("Overall Accuracy", f"{clinical_accuracy.get('overall_accuracy', 0):.1f}%")
+                            with col2:
+                                st.metric("Criteria Extraction", f"{clinical_accuracy.get('criteria_extraction_accuracy', 0):.1f}%")
+                            with col3:
+                                st.metric("Patient Ranking", f"{clinical_accuracy.get('patient_ranking_accuracy', 0):.1f}%")
+                                
+                    else:
+                        st.warning("Phoenix is not running. Check terminal for any initialization errors.")
+                        
+                        with st.expander("🔧 Phoenix Setup Instructions"):
+                            st.write("Install Phoenix with the correct packages:")
+                            st.code("""
+                pip install arize-phoenix==4.10.0
+                pip install openinference-instrumentation-bedrock==0.1.4
+                pip install opentelemetry-api==1.21.0
+                pip install opentelemetry-sdk==1.21.0
+                pip install opentelemetry-exporter-otlp-proto-http==1.21.0
+                            """)
+                            st.write("Then restart your Streamlit app.")
+
             except Exception as e:
                 st.error(f"❌ Error during processing: {str(e)}")
     

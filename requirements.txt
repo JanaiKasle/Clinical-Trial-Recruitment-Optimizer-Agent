@@ -7,3 +7,5 @@ typing-extensions
 plotly
 matplotlib
 seaborn
+arize-phoenix
+openinference-instrumentation
